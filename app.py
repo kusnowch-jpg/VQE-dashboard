@@ -173,7 +173,7 @@ if uploaded_file:
 
 else:
     # 파일 업로드 전 초기 화면
-    st.markdown('<div class="main-header"><h1>👋 VQE 대시보드에 오신 것을 환영합니다!</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header"><h1>미디어Ops팀 VQE 현황 관리</h1></div>', unsafe_allow_html=True)
     st.info("왼쪽 사이드바의 **[CSV 업로드]** 버튼을 통해 데이터를 불러와 주세요.")
     st.write("---")
     st.subheader("💡 사용 팁")
