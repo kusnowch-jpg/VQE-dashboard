@@ -128,5 +128,5 @@ if uploaded_file:
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 else:
-    st.markdown('<div class="main-header"><h1>👋 환영합니다!</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header"><h1>미디어Ops팀 VQE 현황관리</h1></div>', unsafe_allow_html=True)
     st.info("왼쪽 사이드바에서 CSV 파일을 업로드하여 분석을 시작해 주세요.")
