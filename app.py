@@ -54,7 +54,7 @@ with st.sidebar:
     st.header("🚀 VQE Dashboard")
     # 메뉴 선택
     menu = st.radio(
-        "이동할 페이지 선택",
+        "MENU",
         ("📊 실적 대시보드", "📑 완료 콘텐츠 리스트")
     )
     st.divider()
