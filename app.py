@@ -28,7 +28,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header"><h1>📊 VQE 장르별 작업 현황</h1></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>📊 VQE 작업 현황</h1></div>', unsafe_allow_html=True)
 
 # --- 2. 데이터 정제 함수 ---
 def extract_refined_data(path_string):
@@ -82,7 +82,7 @@ if uploaded_file:
         counts = df['장르'].value_counts(sort=False)
         total_count = len(df)
         
-        st.subheader("📍 전체 인코딩 실적 요약")
+        st.subheader("📍 전체 및 장르별 실적 요약")
         m_total, m1, m2, m3, m4 = st.columns(5)
         m_total.metric("📁 전체 완료", f"{total_count} 편")
         m1.metric("📺 드라마", f"{counts.get('드라마', 0)} 편")
