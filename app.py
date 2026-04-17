@@ -1,12 +1,13 @@
 import streamlit as st
 import pandas as pd
 import re
+import requests
+from bs4 import BeautifulSoup
 import plotly.express as px
 
 # --- 1. 페이지 및 디자인 설정 ---
-st.set_page_config(page_title="VQE 작업 현황 대시보드", layout="wide")
+st.set_page_config(page_title="VQE 지능형 작업 현황 대시보드", layout="wide")
 
-# 커스텀 CSS (대시보드 스타일링)
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; }
@@ -28,51 +29,79 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 데이터 정제 함수 ---
-def extract_refined_data(path_string):
-    target_str = str(path_string)
-    filename = target_str.split('/')[-1] if '/' in target_str else target_str
+# --- 2. 하이브리드 매핑 함수 (추가된 핵심 기능) ---
+
+@st.cache_data(ttl=600) # 구글 시트 데이터 10분간 캐시
+def load_google_sheet(url):
+    """구글 시트에서 수동 매핑 데이터를 가져옵니다."""
+    try:
+        sheet_id = url.split("/d/")[1].split("/")[0]
+        csv_url = f"https://docs.google.com/spreadsheets/d/1BKPCgK1cookirMYE24KkUgYmzMCc8S719I33d-X31CU/export?format=csv"
+        return pd.read_csv(csv_url)
+    except:
+        return None
+
+@st.cache_data(ttl=86400) # 네이버 검색 결과 24시간 캐시
+def fetch_naver_title(filename):
+    """구글 시트에 없을 경우 네이버 검색으로 타이틀을 유추합니다."""
+    # 파일명 정제 (확장자 및 특수기호 제거)
+    clean_query = re.sub(r'\[.*?\]|_|\.mpg|\.mp4|\.mkv', ' ', filename).strip()
+    url = f"https://search.naver.com/search.naver?query={clean_query}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
-    genre_type = "기타"
-    if "드라마" in filename: genre_type = "드라마"
-    elif "예능" in filename: genre_type = "예능"
-    elif "시사" in filename or "교양" in filename: genre_type = "시사"
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        # 방송 프로그램 제목 또는 검색 결과 타이틀 추출
+        title_tag = soup.select_one('h2._title strong') or soup.select_one('.api_title_area .tit_box .tit')
+        return title_tag.get_text().strip() if title_tag else clean_query
+    except:
+        return clean_query
+
+def get_hybrid_title(filename, mapping_df, use_naver):
+    """하이브리드 로직: 시트 우선 -> 네이버 검색 -> 기본 정제 순"""
+    # 1순위: 구글 시트 매핑
+    if mapping_df is not None and not mapping_df.empty:
+        match = mapping_df[mapping_df['파일명'] == filename]
+        if not match.empty:
+            return match.iloc[0]['참조타이틀'], "Google Sheet"
     
-    # 타이틀 정제 (특수문자 및 불필요한 단어 제거)
-    temp_title = re.sub(r'\[.*?\]', '', filename).split('.')[0]
-    temp_title = re.sub(r'\d+', '', temp_title).strip()
-    temp_title = temp_title.replace('_', ' ').strip()
+    # 2순위: 네이버 검색
+    if use_naver:
+        return fetch_naver_title(filename), "Naver Search"
     
-    keywords = ["드라마", "예능", "시사", "교양"]
-    for word in keywords:
-        temp_title = temp_title.replace(word, "").strip()
-    
-    return genre_type, temp_title if temp_title else "미분류 타이틀"
+    # 3순위: 기본 정제 로직
+    temp_title = re.sub(r'\[.*?\]|\d+', '', filename).strip().replace('_', ' ')
+    return temp_title if temp_title else "미분류 타이틀", "Default"
 
 # --- 3. 사이드바 메뉴 및 파일 업로드 ---
+
+# ※ 여기에 본인의 구글 시트 주소를 입력하세요.
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1BKPCgK1cookirMYE24KkUgYmzMCc8S719I33d-X31CU/edit"
+
 with st.sidebar:
     st.header("🚀 VQE Dashboard")
-    # 메뉴 선택
-    menu = st.radio(
-        "MENU",
-        ("📊 실적 대시보드", "📑 완료 콘텐츠 리스트")
-    )
+    menu = st.radio("MENU", ("📊 실적 대시보드", "📑 완료 콘텐츠 리스트"))
+    st.divider()
+    
+    st.header("⚙️ 지능형 매핑 설정")
+    enable_naver = st.toggle("네이버 AI 검색 활성화", value=True)
+    if st.button("🔄 캐시 및 참조데이터 새로고침"):
+        st.cache_data.clear()
+        st.rerun()
+        
     st.divider()
     st.header("📂 데이터 관리")
     uploaded_file = st.file_uploader("인코딩 결과 CSV 업로드", type=["csv"])
-    st.caption("파일명, 완료시간(또는 생성일자) 컬럼이 포함된 CSV를 올려주세요.")
 
 # --- 4. 메인 로직 ---
+mapping_data = load_google_sheet(GOOGLE_SHEET_URL)
+
 if uploaded_file:
-    # 데이터 로드
     df = pd.read_csv(uploaded_file)
     
     # 날짜 컬럼 자동 인식
-    date_col = None
-    if '완료시간' in df.columns:
-        date_col = '완료시간'
-    elif '생성일자' in df.columns:
-        date_col = '생성일자'
+    date_col = '완료시간' if '완료시간' in df.columns else ('생성일자' if '생성일자' in df.columns else None)
     
     if date_col:
         df['작업날짜'] = pd.to_datetime(df[date_col], errors='coerce')
@@ -81,19 +110,31 @@ if uploaded_file:
         st.error("CSV에 '완료시간' 또는 '생성일자' 컬럼이 필요합니다.")
         st.stop()
 
-    # 데이터 가공
     if '파일명' in df.columns:
-        df[['장르', '타이틀']] = df['파일명'].apply(lambda x: pd.Series(extract_refined_data(x)))
-        
-        # 장르 순서 고정
-        genre_order = ["드라마", "예능", "시사", "기타"]
-        df['장르'] = pd.Categorical(df['장르'], categories=genre_order, ordered=True)
+        # 하이브리드 매핑 적용
+        with st.spinner('지능형 타이틀 매핑 중...'):
+            unique_files = df['파일명'].unique()
+            # 중복 계산 방지를 위해 고유 파일명만 먼저 매핑
+            mapped_results = {f: get_hybrid_title(f, mapping_data, enable_naver) for f in unique_files}
+            
+            df['타이틀'] = df['파일명'].map(lambda x: mapped_results[x][0])
+            df['매핑출처'] = df['파일명'].map(lambda x: mapped_results[x][1])
+
+            # 장르 추출 (기존 로직)
+            def extract_genre(filename):
+                if "드라마" in filename: return "드라마"
+                elif "예능" in filename: return "예능"
+                elif "시사" in filename or "교양" in filename: return "시사"
+                return "기타"
+            df['장르'] = df['파일명'].apply(extract_genre)
+            
+            genre_order = ["드라마", "예능", "시사", "기타"]
+            df['장르'] = pd.Categorical(df['장르'], categories=genre_order, ordered=True)
 
         # --- [페이지 1] 실적 대시보드 ---
         if menu == "📊 실적 대시보드":
             st.markdown('<div class="main-header"><h1>📊 VQE 작업 현황 요약</h1></div>', unsafe_allow_html=True)
             
-            # 상단 실적 지표
             counts = df['장르'].value_counts(sort=False)
             total_count = len(df)
             
@@ -106,62 +147,37 @@ if uploaded_file:
             
             st.divider()
 
-            # 작업 추이 분석
+            # (작업 추이 분석 - 기존 그래프 로직 유지)
             st.subheader(f"📈 작업 추이 분석 ({date_col} 기준)")
             df_sorted = df.sort_values('작업날짜')
             df_sorted['count'] = 1
             
-            # 1) 주간 추이 (월요일 시작 보정)
-            # W-MON은 주의 끝을 의미하므로 7일을 빼서 시작 월요일로 표시
             df_weekly = df_sorted.resample('W-MON', on='작업날짜')[['count']].sum().reset_index()
             df_weekly['작업날짜'] = df_weekly['작업날짜'] - pd.Timedelta(days=7)
             
-            # 2) 월별 추이 (막대 그래프)
             df_sorted['연월'] = df_sorted['작업날짜'].dt.strftime('%Y-%m')
             df_monthly = df_sorted.groupby('연월')[['count']].sum().reset_index()
 
-            t1, t2 = st.tabs(["🗓️ 주간 추이 (월요일 기준)", "📅 월별 현황 (막대)"])
-            
+            t1, t2 = st.tabs(["🗓️ 주간 추이", "📅 월별 현황"])
             with t1:
-                fig_weekly = px.line(df_weekly, x='작업날짜', y='count', 
-                                    title="주차별 완료 건수 (X축: 해당 주 월요일)",
-                                    labels={'count': '완료 편수', '작업날짜': '주 시작일'},
-                                    markers=True,
-                                    color_discrete_sequence=['#0d6efd'])
-                
-                # X축 눈금을 실제 월요일 데이터 지점에만 표시
-                fig_weekly.update_xaxes(
-                    tickmode='array',
-                    tickvals=df_weekly['작업날짜'],
-                    tickformat="%m-%d" # 월-일 형식
-                )
-                fig_weekly.update_traces(line=dict(width=3))
+                fig_weekly = px.line(df_weekly, x='작업날짜', y='count', markers=True)
+                fig_weekly.update_xaxes(tickformat="%m-%d")
                 st.plotly_chart(fig_weekly, use_container_width=True)
-                
             with t2:
-                fig_monthly = px.bar(df_monthly, x='연월', y='count', 
-                                      title="월간 단위 작업 합계",
-                                      labels={'count': '월간 합계', '연월': '작업 월'},
-                                      text_auto=True,
-                                      color_discrete_sequence=['#198754'])
-                fig_monthly.update_layout(xaxis_type='category')
+                fig_monthly = px.bar(df_monthly, x='연월', y='count', text_auto=True)
                 st.plotly_chart(fig_monthly, use_container_width=True)
 
         # --- [페이지 2] 완료 콘텐츠 리스트 ---
         elif menu == "📑 완료 콘텐츠 리스트":
             st.markdown('<div class="main-header"><h1>📑 상세 작업 리스트</h1></div>', unsafe_allow_html=True)
             
-            # 검색 및 필터 UI
             col_s1, col_s2 = st.columns([2, 1])
             with col_s1:
                 search_query = st.text_input("🔍 타이틀 검색", placeholder="프로그램 명을 입력하세요.")
             with col_s2:
-                selected_genre = st.multiselect("🏷️ 장르 필터", 
-                                                options=["드라마", "예능", "시사", "기타"], 
-                                                default=["드라마", "예능", "시사", "기타"])
+                selected_genre = st.multiselect("🏷️ 장르 필터", options=["드라마", "예능", "시사", "기타"], default=["드라마", "예능", "시사", "기타"])
             
-            # 데이터 필터링 (중복 제거 및 최신순 정렬)
-            display_df = df[['장르', '타이틀', date_col]].drop_duplicates()
+            display_df = df[['매핑출처', '장르', '타이틀', '파일명', date_col]].drop_duplicates()
             display_df = display_df.sort_values(by=[date_col], ascending=False)
             
             if search_query:
@@ -172,13 +188,5 @@ if uploaded_file:
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 else:
-    # 파일 업로드 전 초기 화면
     st.markdown('<div class="main-header"><h1>미디어Ops팀 VQE 현황 관리</h1></div>', unsafe_allow_html=True)
     st.info("왼쪽 사이드바의 **[CSV 업로드]** 버튼을 통해 데이터를 불러와 주세요.")
-    st.write("---")
-    st.subheader("💡 사용 팁")
-    st.markdown("""
-    * **실적 대시보드**: 주간/월간 단위로 작업 생산성을 한눈에 확인할 수 있습니다.
-    * **완료 콘텐츠 리스트**: 작업이 완료된 전체 목록을 확인하고 특정 타이틀을 검색할 수 있습니다.
-    * **데이터 업데이트**: 새로운 CSV를 업로드하면 모든 수치가 즉시 갱신됩니다.
-    """)
