@@ -3,8 +3,8 @@ import pandas as pd
 import plotly.express as px
 import re
 
-# 1. 페이지 설정 및 타이틀 수정
-st.set_page_config(page_title="VQE 장르별 작업 현황", layout="wide") [cite: 651]
+# --- 1. 페이지 및 디자인 설정 ---
+st.set_page_config(page_title="VQE 작업 현황 대시보드", layout="wide")
 
 # 커스텀 CSS: 화이트 톤 테마 및 메트릭 카드 스타일 [cite: 620, 629]
 st.markdown("""
